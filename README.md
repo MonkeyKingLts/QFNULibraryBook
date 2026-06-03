@@ -47,6 +47,58 @@ pip install -r py/requirements.txt
 3. `PUSH_METHOD`：通知方式（可选值：TG、ANPUSH、BARK、DD）
 4. 对应通知方式的相关配置
 
+### 钉钉机器人通知
+
+预约成功、失败或签退时，脚本可通过钉钉群机器人推送消息。配置步骤如下：
+
+#### 1. 创建机器人
+
+1. 打开钉钉群聊 → **群设置** → **智能群助手** → **添加机器人**
+2. 选择 **自定义** 机器人，设置名称（如「图书馆预约」）
+3. 安全设置建议选择 **加签**，复制页面上的 **SEC 开头的密钥**（即 `DD_BOT_SECRET`）
+4. 完成后会得到 Webhook 地址，格式类似：
+
+```
+https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx
+```
+
+#### 2. 填写配置文件
+
+编辑 `py/config.yml`，填入以下三项：
+
+```yaml
+PUSH_METHOD: "DD"
+
+# Webhook 地址中 access_token= 后面的字符串
+DD_BOT_TOKEN: "xxxxxxxx"
+
+# 创建机器人时「加签」方式得到的 SEC 密钥
+DD_BOT_SECRET: "SECxxxxxxxx"
+```
+
+**示例：**
+
+若 Webhook 为 `https://oapi.dingtalk.com/robot/send?access_token=abc123`，则：
+
+- `DD_BOT_TOKEN` 填 `abc123`
+- `DD_BOT_SECRET` 填创建时复制的 `SEC...` 密钥
+
+#### 3. 注意事项
+
+- `PUSH_METHOD` 必须填字母 **`DD`**，不要填数字 `4`
+- 本项目使用 **加签** 方式鉴权，`DD_BOT_TOKEN` 和 `DD_BOT_SECRET` **两项都要填写**
+- 请勿将 Token、Secret 提交到公开仓库（`config.yml` 已在 `.gitignore` 中）
+- 通知在预约脚本结束或出现异常时发送，内容包括预约结果、座位信息等
+
+#### 4. 其他通知方式
+
+| PUSH_METHOD | 说明 | 需填写的配置项 |
+|-------------|------|----------------|
+| TG | Telegram | `CHANNEL_ID`、`TELEGRAM_BOT_TOKEN` |
+| BARK | Bark 推送 | `BARK_URL`、`BARK_EXTRA` |
+| ANPUSH | Anpush | `ANPUSH_TOKEN`、`ANPUSH_CHANNEL` |
+| DD | 钉钉 | `DD_BOT_TOKEN`、`DD_BOT_SECRET` |
+
 ### 程序介绍
 
 - `py/get_seat_tomorrow_mode_1.py`：预约模式 1，预约明天的座位，仅适用于西校区图书馆的三个自习室，优选了有插座的位置。
