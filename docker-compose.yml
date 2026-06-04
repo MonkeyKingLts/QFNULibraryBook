@@ -1,6 +1,8 @@
 services:
   qfnu-library-book:
     build: .
+    # 使用宿主机网络，避免容器桥接网络无法出网（errno 101）
+    network_mode: host
     volumes:
       - ./py/config.yml:/app/config.yml
       - ./json:/app/json
