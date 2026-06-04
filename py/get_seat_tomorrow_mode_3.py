@@ -19,6 +19,7 @@ from get_info import (
     encrypt,
     get_member_seat,
 )
+from seat_filter import build_exclude_set, filter_allowed_seats
 
 import json
 import base64
@@ -42,6 +43,9 @@ CHANNEL_ID = ""
 TELEGRAM_BOT_TOKEN = ""
 CLASSROOMS_NAME = ""
 SEAT_ID = ""
+EXCLUDE_SEAT_RANGES = []
+EXCLUDE_SEAT_LIST = []
+EXCLUDE_SEAT_SET = set()
 DATE = ""
 USERNAME = ""
 PASSWORD = ""
@@ -57,7 +61,7 @@ PUSH_METHOD = ""
 
 # 读取YAML配置文件并设置全局变量
 def read_config_from_yaml():
-    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
+    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
     current_dir = os.path.dirname(
         os.path.abspath(__file__)
     )  # 获取当前文件所在的目录的绝对路径
@@ -74,6 +78,8 @@ def read_config_from_yaml():
             "CLASSROOMS_NAME", []
         )  # 将 CLASSROOMS_NAME 读取为列表
         SEAT_ID = config.get("SEAT_ID", [])  # 将 SEAT_ID 读取为列表
+        EXCLUDE_SEAT_RANGES = config.get("EXCLUDE_SEAT_RANGES", [])
+        EXCLUDE_SEAT_LIST = config.get("EXCLUDE_SEAT_LIST", [])
         DATE = config.get("DATE", "")
         USERNAME = config.get("USERNAME", "")
         PASSWORD = config.get("PASSWORD", "")
@@ -85,6 +91,13 @@ def read_config_from_yaml():
         DD_BOT_TOKEN = config.get("DD_BOT_TOKEN", "")
         DD_BOT_SECRET = config.get("DD_BOT_SECRET", "")
         PUSH_METHOD = config.get("PUSH_METHOD", "")
+
+
+def init_exclude_set():
+    global EXCLUDE_SEAT_SET
+    EXCLUDE_SEAT_SET = build_exclude_set(EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST)
+    if EXCLUDE_SEAT_SET:
+        logger.info(f"已加载不抢座位 {len(EXCLUDE_SEAT_SET)} 个")
 
 
 # 在代码的顶部定义全局变量
@@ -502,6 +515,11 @@ def select_seat(build_id, segment, nowday):
             send_message()
             sys.exit()
         else:
+            if EXCLUDE_SEAT_SET:
+                data = filter_allowed_seats(data, EXCLUDE_SEAT_SET)
+            if not data:
+                time.sleep(3)
+                continue
             select_id = random_get_seat(data)
             logger.info(f"随机选择的座位为: {select_id}")
             post_to_get_seat(select_id, segment)
@@ -563,7 +581,7 @@ def get_info_and_select_seat():
 if __name__ == "__main__":
     try:
         read_config_from_yaml()
-        # print_variables()
+        init_exclude_set()
         check_time()
     except KeyboardInterrupt:
         logger.info("主动退出程序，程序将退出。")
