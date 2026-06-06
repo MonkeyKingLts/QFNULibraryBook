@@ -13,12 +13,19 @@ from telegram import Bot
 from get_bearer_token import get_bearer_token
 from get_info import (
     get_date,
+    get_seat_info,
     get_segment,
     get_build_id,
     encrypt,
     get_member_seat,
 )
-from seat_filter import build_exclude_set, load_allowed_seat_api_ids
+from seat_filter import (
+    build_exclude_set,
+    filter_allowed_seats,
+    load_allowed_seat_api_ids,
+    pick_seat_with_preference,
+    resolve_preferred_seat_api_id,
+)
 
 import json
 import base64
@@ -46,6 +53,8 @@ EXCLUDE_SEAT_RANGES = []
 EXCLUDE_SEAT_LIST = []
 EXCLUDE_SEAT_SET = set()
 ALLOWED_SEAT_IDS = []
+PREFERRED_SEAT_NO = None
+PREFERRED_SEAT_ID = None
 DATE = ""
 USERNAME = ""
 PASSWORD = ""
@@ -61,7 +70,7 @@ PUSH_METHOD = ""
 
 # 读取YAML配置文件并设置全局变量
 def read_config_from_yaml():
-    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
+    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST, PREFERRED_SEAT_NO, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
     current_dir = os.path.dirname(
         os.path.abspath(__file__)
     )  # 获取当前文件所在的目录的绝对路径
@@ -80,6 +89,7 @@ def read_config_from_yaml():
         SEAT_ID = config.get("SEAT_ID", [])  # 将 SEAT_ID 读取为列表
         EXCLUDE_SEAT_RANGES = config.get("EXCLUDE_SEAT_RANGES", [])
         EXCLUDE_SEAT_LIST = config.get("EXCLUDE_SEAT_LIST", [])
+        PREFERRED_SEAT_NO = config.get("PREFERRED_SEAT_NO") or None
         DATE = config.get("DATE", "")
         USERNAME = config.get("USERNAME", "")
         PASSWORD = config.get("PASSWORD", "")
@@ -443,17 +453,34 @@ def init_exclude_set():
     EXCLUDE_SEAT_SET = build_exclude_set(EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST)
 
 
+def init_preferred_seat():
+    """加载首选座位 API id；未配置 PREFERRED_SEAT_NO 时兼容 SEAT_ID 单座锁定。"""
+    global PREFERRED_SEAT_ID
+    if PREFERRED_SEAT_NO and CLASSROOMS_NAME:
+        PREFERRED_SEAT_ID = resolve_preferred_seat_api_id(
+            CLASSROOMS_NAME[0], PREFERRED_SEAT_NO
+        )
+        logger.info(
+            f"首选座位 {PREFERRED_SEAT_NO} 号 (id {PREFERRED_SEAT_ID})，不可用则抢其他座"
+        )
+        return
+    if SEAT_ID and len(SEAT_ID) >= 2 and int(SEAT_ID[0]) == int(SEAT_ID[1]):
+        PREFERRED_SEAT_ID = str(SEAT_ID[0])
+
+
 def init_seat_pool():
     """SEAT_ID 为空时，从 seat_info 加载可抢座位的 API id 列表。"""
     global ALLOWED_SEAT_IDS
-    if SEAT_ID:
-        return
     init_exclude_set()
+    init_preferred_seat()
+    if SEAT_ID and not PREFERRED_SEAT_NO:
+        return
     pool = []
     for room in CLASSROOMS_NAME:
         pool.extend(load_allowed_seat_api_ids(room, EXCLUDE_SEAT_SET))
     ALLOWED_SEAT_IDS = pool
-    logger.info(f"已加载 {len(ALLOWED_SEAT_IDS)} 个可抢座位")
+    if not PREFERRED_SEAT_ID:
+        logger.info(f"已加载 {len(ALLOWED_SEAT_IDS)} 个可抢座位")
 
 
 def generate_unique_random():
@@ -532,22 +559,59 @@ def random_get_seat(data):
 # 选座主要逻辑
 def select_seat(build_id, segment, nowday):
     global MESSAGE, FLAG
-    retries = 0  # 添加重试计数器
+    retries = 0
+    use_fallback = False
 
     while not FLAG and retries < 2000:
         logger.info(f"*" * 50)
         logger.info(f"开始第 {retries+1} 次尝试获取座位")
         retries += 1
+
+        if PREFERRED_SEAT_ID and not use_fallback:
+            logger.info(
+                f"首选座位 {PREFERRED_SEAT_NO} 号 (id {PREFERRED_SEAT_ID})"
+            )
+            post_to_get_seat(PREFERRED_SEAT_ID, segment)
+            if FLAG:
+                continue
+            msg = SEAT_RESULT.get("msg") if isinstance(SEAT_RESULT, dict) else None
+            if msg == "该空间当前状态不可预约":
+                logger.info(
+                    f"首选 {PREFERRED_SEAT_NO} 号已被占或不可用，改抢其他座位"
+                )
+                use_fallback = True
+            continue
+
+        if PREFERRED_SEAT_ID and use_fallback:
+            data = get_seat_info(build_id, segment, nowday)
+            if not data:
+                time.sleep(3)
+                continue
+            if EXCLUDE_SEAT_SET:
+                new_data = filter_allowed_seats(data, EXCLUDE_SEAT_SET)
+            else:
+                new_data = data
+            if not new_data:
+                time.sleep(3)
+                continue
+            select_id, seat_no = pick_seat_with_preference(
+                new_data, PREFERRED_SEAT_NO
+            )
+            if str(seat_no) == str(PREFERRED_SEAT_NO):
+                logger.info(f"首选座位 {seat_no} 号空闲，选择 id: {select_id}")
+            else:
+                logger.info(f"改抢 {seat_no} 号 (id: {select_id})")
+            post_to_get_seat(select_id, segment)
+            continue
+
         seat_id = generate_unique_random()
         logger.info(f"随机选择的座位为: {seat_id}")
-        if seat_id == False:
+        if seat_id is False:
             logger.info("指定模式无可用座位, 程序将自动退出")
             MESSAGE += "\n指定模式无可用座位, 程序将自动退出"
             send_message()
             sys.exit()
-        else:
-            post_to_get_seat(seat_id, segment)
-        continue
+        post_to_get_seat(seat_id, segment)
 
     # 如果超过最大重试次数仍然没有获取到座位,则退出程序
     if retries >= 2000:

@@ -19,7 +19,12 @@ from get_info import (
     encrypt,
     get_member_seat,
 )
-from seat_filter import build_exclude_set, filter_allowed_seats
+from seat_filter import (
+    build_exclude_set,
+    filter_allowed_seats,
+    pick_seat_with_preference,
+    resolve_preferred_seat_api_id,
+)
 
 import json
 import base64
@@ -46,6 +51,8 @@ SEAT_ID = ""
 EXCLUDE_SEAT_RANGES = []
 EXCLUDE_SEAT_LIST = []
 EXCLUDE_SEAT_SET = set()
+PREFERRED_SEAT_NO = None
+PREFERRED_SEAT_ID = None
 DATE = ""
 USERNAME = ""
 PASSWORD = ""
@@ -61,7 +68,7 @@ PUSH_METHOD = ""
 
 # 读取YAML配置文件并设置全局变量
 def read_config_from_yaml():
-    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
+    global CHANNEL_ID, TELEGRAM_BOT_TOKEN, CLASSROOMS_NAME, SEAT_ID, EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST, PREFERRED_SEAT_NO, DATE, USERNAME, PASSWORD, GITHUB, BARK_EXTRA, BARK_URL, ANPUSH_TOKEN, ANPUSH_CHANNEL, PUSH_METHOD, DD_BOT_TOKEN, DD_BOT_SECRET
     current_dir = os.path.dirname(
         os.path.abspath(__file__)
     )  # 获取当前文件所在的目录的绝对路径
@@ -80,6 +87,7 @@ def read_config_from_yaml():
         SEAT_ID = config.get("SEAT_ID", [])  # 将 SEAT_ID 读取为列表
         EXCLUDE_SEAT_RANGES = config.get("EXCLUDE_SEAT_RANGES", [])
         EXCLUDE_SEAT_LIST = config.get("EXCLUDE_SEAT_LIST", [])
+        PREFERRED_SEAT_NO = config.get("PREFERRED_SEAT_NO") or None
         DATE = config.get("DATE", "")
         USERNAME = config.get("USERNAME", "")
         PASSWORD = config.get("PASSWORD", "")
@@ -94,10 +102,17 @@ def read_config_from_yaml():
 
 
 def init_exclude_set():
-    global EXCLUDE_SEAT_SET
+    global EXCLUDE_SEAT_SET, PREFERRED_SEAT_ID
     EXCLUDE_SEAT_SET = build_exclude_set(EXCLUDE_SEAT_RANGES, EXCLUDE_SEAT_LIST)
     if EXCLUDE_SEAT_SET:
         logger.info(f"已加载不抢座位 {len(EXCLUDE_SEAT_SET)} 个")
+    if PREFERRED_SEAT_NO and CLASSROOMS_NAME:
+        PREFERRED_SEAT_ID = resolve_preferred_seat_api_id(
+            CLASSROOMS_NAME[0], PREFERRED_SEAT_NO
+        )
+        logger.info(
+            f"首选座位 {PREFERRED_SEAT_NO} 号 (id {PREFERRED_SEAT_ID})，不可用则抢其他座"
+        )
 
 
 # 在代码的顶部定义全局变量
@@ -487,18 +502,6 @@ def post_to_get_seat(select_id, segment):
     check_reservation_status()
 
 
-# 随机获取座位
-def random_get_seat(data):
-    global MESSAGE
-    # 随机选择一个字典
-    random_dict = random.choice(data)
-    # 获取该字典中 'id' 键对应的值
-    select_id = random_dict["id"]
-    # seat_no = random_dict['no']
-    # logger.info(f"随机选择的座位为: {select_id} 真实位置: {seat_no}")
-    return select_id
-
-
 # 选座主要逻辑
 def select_seat(build_id, segment, nowday):
     global MESSAGE, FLAG
@@ -520,8 +523,17 @@ def select_seat(build_id, segment, nowday):
             else:
                 new_data = [d for d in data if d["id"] not in EXCLUDE_ID]
             if new_data:
-                select_id = random_get_seat(new_data)
-                logger.info(f"随机选择的座位为: {select_id}")
+                select_id, seat_no = pick_seat_with_preference(
+                    new_data, PREFERRED_SEAT_NO
+                )
+                if PREFERRED_SEAT_NO and str(seat_no) == str(PREFERRED_SEAT_NO):
+                    logger.info(f"首选座位 {seat_no} 号空闲，选择 id: {select_id}")
+                elif PREFERRED_SEAT_NO:
+                    logger.info(
+                        f"首选不可用，改抢 {seat_no} 号 (id: {select_id})"
+                    )
+                else:
+                    logger.info(f"随机选择座位 {seat_no} 号 (id: {select_id})")
                 post_to_get_seat(select_id, segment)
             else:
                 time.sleep(3)
