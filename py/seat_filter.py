@@ -20,10 +20,22 @@ def filter_allowed_seats(seats, exclude_set):
     return [s for s in seats if int(s.get("no", 0)) not in exclude_set]
 
 
+def _seat_info_json_path(classroom_name):
+    """兼容本地 py/ 目录与 Docker /app/ 目录的 json 路径。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "json", "seat_info", f"{classroom_name}.json"),
+        os.path.join(os.path.dirname(here), "json", "seat_info", f"{classroom_name}.json"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return candidates[0]
+
+
 def resolve_preferred_seat_api_id(classroom_name, seat_no):
     """根据座位号从 seat_info 查询 API id。"""
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(repo_root, "json", "seat_info", f"{classroom_name}.json")
+    path = _seat_info_json_path(classroom_name)
     with open(path, encoding="utf-8") as f:
         data = json.load(f)["data"]
     target = int(seat_no)
@@ -46,8 +58,7 @@ def pick_seat_with_preference(seats, preferred_no=None):
 
 def load_allowed_seat_api_ids(classroom_name, exclude_set):
     """从 json/seat_info 加载可抢座位的 API id 列表（供模式 2 使用）。"""
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(repo_root, "json", "seat_info", f"{classroom_name}.json")
+    path = _seat_info_json_path(classroom_name)
     with open(path, encoding="utf-8") as f:
         data = json.load(f)["data"]
     return [
