@@ -585,13 +585,18 @@ def select_seat(build_id, segment, nowday):
         if PREFERRED_SEAT_ID and use_fallback:
             data = get_seat_info(build_id, segment, nowday)
             if not data:
+                logger.info("备选：当前无空闲座位，3秒后重试")
                 time.sleep(3)
                 continue
+            logger.info(f"备选：查询到 {len(data)} 个空闲座位")
             if EXCLUDE_SEAT_SET:
                 new_data = filter_allowed_seats(data, EXCLUDE_SEAT_SET)
             else:
                 new_data = data
             if not new_data:
+                logger.info(
+                    f"备选：黑名单过滤后无可抢座位（空闲 {len(data)} 个均在排除列表），3秒后重试"
+                )
                 time.sleep(3)
                 continue
             select_id, seat_no = pick_seat_with_preference(

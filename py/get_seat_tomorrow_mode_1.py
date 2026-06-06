@@ -536,6 +536,7 @@ def select_seat(build_id, segment, nowday):
                     logger.info(f"随机选择座位 {seat_no} 号 (id: {select_id})")
                 post_to_get_seat(select_id, segment)
             else:
+                logger.info("当前无符合要求的空闲座位，3秒后重试")
                 time.sleep(3)
             continue
 
