@@ -655,10 +655,20 @@ def check_time():
     # 如果距离时间在合适的范围内, 将设置等待时间
     elif time_difference > 30:
         logger.info(f"程序等待{time_difference}秒后启动")
+        # 提前登录：验证码 OCR 可能重试多次，避免占用 19:20 开抢时间
+        logger.info("提前获取登录凭证（验证码识别可能需多次重试）")
+        prewarm_auth()
         time.sleep(time_difference - 10)
         get_info_and_select_seat()
     else:
         get_info_and_select_seat()
+
+
+def prewarm_auth():
+    """计划任务启动后先登录，缓存 token，避免开抢时验证码重试耗时。"""
+    global NEW_DATE
+    NEW_DATE = get_date(DATE)
+    get_auth_token()
 
 
 # 主函数
