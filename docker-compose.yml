@@ -1,7 +1,10 @@
 services:
   qfnu-library-book:
-    build: .
-    # 使用宿主机网络，避免容器桥接网络无法出网（errno 101）
+    build:
+      context: .
+      # 构建阶段也用宿主机网络，避免 pip 安装时 DNS 解析失败
+      network: host
+    # 运行阶段使用宿主机网络，避免容器桥接网络无法出网（errno 101）
     network_mode: host
     volumes:
       - ./py/config.yml:/app/config.yml

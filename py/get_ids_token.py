@@ -69,7 +69,7 @@ def get_captcha():
     return res.content
 
 
-def get_token(username, password, max_attempts=5):
+def get_token(username, password, max_attempts=12):
     """
     获取用户 Token
 
