@@ -356,11 +356,19 @@ def get_auth_token():
             TOKEN_TIMESTAMP is None
             or (datetime.datetime.now() - TOKEN_TIMESTAMP) > TOKEN_EXPIRY_DELTA
         ):
-            # Token 过期或尚未获取，重新获取
-            name, token = get_bearer_token(USERNAME, PASSWORD)
+            name, token = None, None
+            for attempt in range(1, 4):
+                name, token = get_bearer_token(USERNAME, PASSWORD)
+                if token is not None:
+                    break
+                logger.warning(f"获取 token 失败，第 {attempt}/3 次重试")
+                if attempt < 3:
+                    time.sleep(2)
             if token is None:
-                logging.error("获取 token 失败，账号密码错误或者网络错误。")
-                MESSAGE += "\n获取 token 失败，账号密码错误或者网络错误。"
+                logging.error(
+                    "获取 token 失败，可能是验证码、账号密码错误或网络异常。"
+                )
+                MESSAGE += "\n获取 token 失败，可能是验证码、账号密码错误或网络异常。"
                 send_message()
                 sys.exit()
             else:
