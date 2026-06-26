@@ -100,7 +100,7 @@ def get_captcha():
     return res.content
 
 
-def get_token(username, password, max_attempts=25):
+def get_token(username, password, max_attempts=80):
     """
     获取用户 Token
 
@@ -145,6 +145,8 @@ def get_token(username, password, max_attempts=25):
             "lt": "",
             "execution": execution_data,
         }
+        if need_captcha:
+            data["needCaptcha"] = "true"
         res = session.post(
             url=LOGIN_URI, headers=headers, data=data, allow_redirects=False
         )
